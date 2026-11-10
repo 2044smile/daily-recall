@@ -1,0 +1,22 @@
+name: daily-recall
+
+on:
+  schedule:
+    - cron: "0 20 * * *" # UTC 20시 = KST 05시 (GitHub 사정으로 수십 분 늦을 수 있음)
+  workflow_dispatch: # Actions 탭에서 수동 실행
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test
+      - run: node src/main.js
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          REVIEW_DB_ID: ${{ secrets.REVIEW_DB_ID }}
+          SOURCE_PAGE_IDS: ${{ secrets.SOURCE_PAGE_IDS }}
