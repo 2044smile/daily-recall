@@ -31,3 +31,25 @@ test("한 줄·구분자·두 줄 형식을 모두 읽는다", () => {
 test("중복 키는 따옴표·대소문자·문장부호를 무시한다", () => {
   assert.equal(keyOf("I’ll think about it!"), keyOf("i'll think  about it"));
 });
+
+test("블록 안 둘째 줄은 영어가 섞여 있어도 한국어 뜻으로 본다", () => {
+  assert.deepEqual(parseLines(["The EV or the hybrid?\nEV 아니면 하이브리드?"]), [
+    { en: "The EV or the hybrid?", ko: "EV 아니면 하이브리드?" },
+  ]);
+});
+
+test("대화 표시는 지우고 문법 메모 조각은 버린다", () => {
+  assert.deepEqual(parseLines(["A: Coffee is stronger than tea\n커피가 차보다 더 세", "way too + 형용사; 정말 너무", "thinking of 는 아직 결정된 게 없다는 뜻"]), [
+    { en: "Coffee is stronger than tea", ko: "커피가 차보다 더 세" },
+  ]);
+});
+
+test("제목 자리(빈 줄)를 넘어 짝짓지 않는다", () => {
+  assert.deepEqual(parseLines(["Should I get ___ or ___?", "", "두 가지 옵션 중에 조언을 구해보세요!"]), []);
+});
+
+test("셋째 줄부터의 설명 메모는 버린다", () => {
+  assert.deepEqual(parseLines(["Why don’t you sleep on it?\n하룻밤 자면서 생각해 봐\n→ sleep on it: 결정을 하루 미루다"]), [
+    { en: "Why don’t you sleep on it?", ko: "하룻밤 자면서 생각해 봐" },
+  ]);
+});

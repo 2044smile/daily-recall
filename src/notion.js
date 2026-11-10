@@ -59,8 +59,10 @@ export async function pageLines(blockId) {
   const lines = [];
   for (const b of blocks) {
     const rich = b[b.type]?.rich_text;
-    // Shift+Enter 줄바꿈은 한 블록 안의 \n 으로 들어옴
-    if (rich) lines.push(...rich.map((t) => t.plain_text).join("").split("\n"));
+    // 제목은 카드가 아님. 빈 줄을 넣어 앞뒤 문장과 짝지어지지 않게 함
+    if (b.type.startsWith("heading_")) lines.push("");
+    // 블록 단위로 넘김. Shift+Enter 줄바꿈은 한 블록 안의 \n 으로 들어옴
+    else if (rich) lines.push(rich.map((t) => t.plain_text).join(""));
     if (b.has_children && b.type !== "child_database") lines.push(...(await pageLines(b.id)));
   }
   return lines;
