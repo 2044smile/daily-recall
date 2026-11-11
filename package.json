@@ -5,7 +5,6 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "start": "node --env-file=.env src/main.js",
-    "setup": "node --env-file=.env src/setup.js",
     "test": "node --test"
   }
 }

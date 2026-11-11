@@ -1,68 +1,74 @@
-// 매일 1회: 채점 반영 → 새 문장 추가 → 오늘 복습할 카드 표시
-import { P, idOf, pageLines, queryAll, createRow, updateRow } from "./notion.js";
+// 매일 1회: 학습 페이지 전체에서 문장을 모아 섞은 뒤 '오늘의 복습' 페이지를 만듦
+import { idOf, collect, archiveChildPages, createPage } from "./notion.js";
 import { parseLines, keyOf } from "./parse.js";
-import { review, pickToday } from "./scheduler.js";
+import { pick, DAILY_COUNT, FLASH_COUNT } from "./pick.js";
+import { explain } from "./explain.js";
 
-const dbId = idOf(process.env.REVIEW_DB_ID ?? "");
+const parentId = idOf(process.env.REVIEW_PAGE_ID ?? "");
 const sources = (process.env.SOURCE_PAGE_IDS ?? "").split(",").filter(Boolean).map(idOf);
-if (!process.env.NOTION_TOKEN || !dbId || !sources.length) {
-  throw new Error("NOTION_TOKEN, REVIEW_DB_ID, SOURCE_PAGE_IDS 환경변수가 필요합니다");
+if (!process.env.NOTION_TOKEN || !parentId || !sources.length) {
+  throw new Error("NOTION_TOKEN, REVIEW_PAGE_ID, SOURCE_PAGE_IDS 환경변수가 필요합니다");
 }
 const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10); // KST 기준 날짜
 
-const text = (prop) => (prop?.title ?? prop?.rich_text ?? []).map((t) => t.plain_text).join("");
-
-// 1. 기존 카드 읽기 + 채점 반영
-const cards = (await queryAll(dbId)).map((row) => {
-  const p = row.properties;
-  const card = {
-    id: row.id,
-    en: text(p[P.en]),
-    stage: p[P.stage].number ?? 0,
-    due: p[P.due].date?.start ?? today,
-    lapses: p[P.lapses].number ?? 0,
-    today: p[P.today].checkbox,
-  };
-  const grade = p[P.grade].select?.name;
-  return grade ? { ...review(card, grade, today), graded: true, wasToday: card.today } : { ...card, wasToday: card.today };
-});
-
-// 2. 학습 페이지에서 새 문장 찾기
-const seen = new Set(cards.map((c) => keyOf(c.en)));
-let parsed = 0;
+// 1. 문장·플래시 카드 모으기 (Review 섹션 등에서 반복되는 것은 처음 것만)
+const seen = new Set();
+const items = [];
+const flashes = [];
 for (const pageId of sources) {
-  for (const { en, ko } of parseLines(await pageLines(pageId))) {
-    parsed++;
-    if (seen.has(keyOf(en))) continue;
-    seen.add(keyOf(en));
-    cards.push({ en, ko, stage: 0, due: today, lapses: 0, isNew: true, wasToday: false });
+  for (const { lesson, section, lines, flash } of await collect(pageId)) {
+    for (const card of parseLines(lines)) {
+      if (seen.has(keyOf(card.en))) continue;
+      seen.add(keyOf(card.en));
+      items.push({ ...card, lesson, section });
+    }
+    for (const f of flash) if (f.front && f.back.length) flashes.push({ ...f, lesson, section });
   }
 }
-
-// 3. 오늘 복습 표시 후 바뀐 것만 저장
-const picked = new Set(pickToday(cards, today));
-const state = (c) => ({
-  [P.stage]: { number: c.stage },
-  [P.due]: { date: { start: c.due } },
-  [P.lapses]: { number: c.lapses },
-  [P.today]: { checkbox: picked.has(c) },
-  [P.grade]: { select: null },
-});
-let created = 0, graded = 0;
-for (const c of cards) {
-  if (c.isNew) {
-    await createRow(dbId, {
-      [P.ko]: { title: [{ text: { content: c.ko } }] },
-      [P.en]: { rich_text: [{ text: { content: c.en } }] },
-      [P.added]: { date: { start: today } },
-      ...state(c),
-    });
-    created++;
-  } else if (c.graded || c.wasToday !== picked.has(c)) {
-    await updateRow(c.id, state(c));
-    if (c.graded) graded++;
-  }
+if (!items.length) {
+  throw new Error("학습 페이지에서 문장을 하나도 못 찾았습니다. 통합이 페이지에 연결됐는지, 형식이 맞는지 확인하세요.");
 }
 
-console.log(`[${today}] 파싱 ${parsed}문장, 신규 ${created}, 채점 반영 ${graded}, 오늘 복습 ${picked.size}장`);
-if (!parsed) console.warn("학습 페이지에서 문장을 하나도 못 찾았습니다. 통합이 페이지에 연결됐는지, 형식이 맞는지 확인하세요.");
+// 2. 섞어서 고르고, 고른 문장에만 단어 설명 붙이기
+const picked = pick(items, DAILY_COUNT);
+const notes = await explain(picked.map((c) => c.en));
+const pickedFlash = pick(flashes, FLASH_COUNT);
+
+// 3. 페이지 만들기: 문장은 한국어 토글 → 영어·한글 발음·출처·단어 설명 / 문법 포인트는 영어 토글 → 설명
+const text = (content, annotations) => ({ type: "text", text: { content }, ...(annotations && { annotations }) });
+const para = (...rich) => ({ type: "paragraph", paragraph: { rich_text: rich } });
+const toggle = (title, children) => ({ type: "toggle", toggle: { rich_text: [text(title)], children } });
+const source = (c) => para(text([c.lesson, c.section].filter(Boolean).join(" · "), { color: "gray" }));
+// 💡 prestigious  /prɛˈstɪdʒəs/ 프레스티저스
+//    권위·명성 있는 (famous보다 격이 높음)
+//    예) It's a prestigious award. 권위 있는 상이야.
+const word = (w) =>
+  para(
+    text("💡 "),
+    text(w.word, { bold: true }),
+    text([w.ipa && `  /${w.ipa.replace(/^\/|\/$/g, "")}/`, w.sound && ` ${w.sound}`].filter(Boolean).join(""), { color: "gray" }),
+    text(`\n${w.meaning}`),
+    ...(w.example ? [text("\n예) "), text(w.example, { italic: true }), text(w.example_ko ? `  ${w.example_ko}` : "", { color: "gray" })] : []),
+  );
+const heading = (s) => ({ type: "heading_2", heading_2: { rich_text: [text(s)] } });
+
+const blocks = [
+  heading(`문장 (${picked.length})`),
+  ...picked.map((c, i) =>
+    toggle(`${i + 1}. ${c.ko}`, [
+      para(text(c.en, { bold: true })),
+      ...(notes[i].sound ? [para(text(`🔊 ${notes[i].sound}`, { color: "gray" }))] : []),
+      source(c),
+      ...notes[i].words.map(word),
+    ]),
+  ),
+  ...(pickedFlash.length
+    ? [heading(`문법 포인트 (${pickedFlash.length})`), ...pickedFlash.map((f) => toggle(f.front, [...f.back.map((b) => para(text(b))), source(f)]))]
+    : []),
+];
+const title = `오늘의 복습 ${today}`;
+await archiveChildPages(parentId, title);
+const page = await createPage(parentId, title, blocks);
+
+const explained = notes.filter((n) => n.words.length).length;
+console.log(`[${today}] 문장 ${items.length}개 중 ${picked.length}개 (단어 설명 ${explained}개), 플래시 카드 ${flashes.length}개 중 ${pickedFlash.length}개 → ${page.url}`);

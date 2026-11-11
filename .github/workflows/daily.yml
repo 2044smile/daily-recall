@@ -18,5 +18,6 @@ jobs:
       - run: node src/main.js
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
-          REVIEW_DB_ID: ${{ secrets.REVIEW_DB_ID }}
+          REVIEW_PAGE_ID: ${{ secrets.REVIEW_PAGE_ID }}
           SOURCE_PAGE_IDS: ${{ secrets.SOURCE_PAGE_IDS }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
