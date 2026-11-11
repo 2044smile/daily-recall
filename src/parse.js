@@ -9,7 +9,13 @@ const HANGUL = /[가-힣]/;
 const LATIN = /[A-Za-z]/;
 const SAME_LINE = /^([^가-힣]*?[A-Za-z][^가-힣]*?)[\s;:,-]*([(\[]?[가-힣].*)$/;
 
-const clean = (s) => s.replace(/^[\s*•·-]+/, "").replace(/^[AB]:\s*/, "").trim();
+// 영어 단어 뒤에 붙인 한글 발음 메모는 지움: "suburbs[서벌브즈]" → "suburbs"
+const clean = (s) =>
+  s
+    .replace(/([A-Za-z])\s*\[[^\]]*[가-힣ㄱ-ㅎ][^\]]*\]/g, "$1")
+    .replace(/^[\s*•·-]+/, "")
+    .replace(/^[AB]:\s*/, "")
+    .trim();
 
 // 문법 메모 조각은 카드로 쓰지 않음: "way too + 형용사", "thinking of 는 ~를 의미"
 const isFragment = ({ en, ko }) => /\+$/.test(en) || /^[은는의을를이가]\s/.test(ko);
@@ -56,7 +62,8 @@ export function parseLines(blocks) {
     }
   }
   cards.push(...parseFlat(flat));
-  return cards.filter((c) => !isFragment(c));
+  // 뜻 뒤의 "→ sleep on it: ..." 같은 설명은 버림
+  return cards.map((c) => ({ ...c, ko: c.ko.replace(/\s*→.*$/, "") })).filter((c) => c.ko && !isFragment(c));
 }
 
 // 중복 판별용: 대소문자·문장부호·따옴표 차이 무시

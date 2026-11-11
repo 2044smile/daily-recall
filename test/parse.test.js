@@ -53,3 +53,24 @@ test("셋째 줄부터의 설명 메모는 버린다", () => {
     { en: "Why don’t you sleep on it?", ko: "하룻밤 자면서 생각해 봐" },
   ]);
 });
+
+test("영어 단어 뒤에 붙인 한글 발음 메모는 지운다", () => {
+  assert.deepEqual(
+    parseLines([
+      "On the other hand, the suburbs[서벌브즈] are safer\n다른 한편으로는, 도시 외곽이 더 안전해",
+      "Speak is more fun than its competitors[컴페리럴스]\nSpeak는 경쟁 서비스들보다 더 재미있습니다",
+      "perk[퍼얼ㅋ]; 일반적인 장점보다 조금 더 매력적인 혜택",
+    ]),
+    [
+      { en: "On the other hand, the suburbs are safer", ko: "다른 한편으로는, 도시 외곽이 더 안전해" },
+      { en: "Speak is more fun than its competitors", ko: "Speak는 경쟁 서비스들보다 더 재미있습니다" },
+      { en: "perk", ko: "일반적인 장점보다 조금 더 매력적인 혜택" },
+    ],
+  );
+});
+
+test("뜻 뒤의 → 설명은 버린다", () => {
+  assert.deepEqual(parseLines(["Why don’t you sleep on it?\n하룻밤 자면서 생각해 봐 → sleep on it: 결정을 하루 미루다"]), [
+    { en: "Why don’t you sleep on it?", ko: "하룻밤 자면서 생각해 봐" },
+  ]);
+});
