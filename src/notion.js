@@ -28,7 +28,7 @@ export async function notion(method, path, body) {
   }
 }
 
-async function children(blockId) {
+export async function children(blockId) {
   const out = [];
   let cursor;
   do {
@@ -39,7 +39,7 @@ async function children(blockId) {
   return out;
 }
 
-const plain = (rich) => rich.map((t) => t.plain_text).join("");
+export const plain = (rich) => rich.map((t) => t.plain_text).join("");
 const LIST = new Set(["bulleted_list_item", "numbered_list_item"]);
 const NOTES = new Set(["quote", "callout", "child_database"]);
 const FLASH = /플래시\s*카드/;
@@ -85,13 +85,71 @@ async function walk(blockId, ctx, out) {
   }
 }
 
-// 부모 페이지 아래 같은 제목의 하위 페이지를 보관함으로 (재실행 시 중복 방지)
-export async function archiveChildPages(parentId, title) {
-  for (const b of await children(parentId)) {
-    if (b.type === "child_page" && b.child_page.title === title) {
-      await notion("PATCH", `/pages/${b.id}`, { archived: true });
-    }
+export const archivePage = (pageId) => notion("PATCH", `/pages/${pageId}`, { archived: true });
+
+export const renamePage = (pageId, title) =>
+  notion("PATCH", `/pages/${pageId}`, { properties: { title: { title: [{ text: { content: title } }] } } });
+
+// 복습 기록 DB 속성 이름. 노션에서 이름을 바꾸면 여기도 같이 바꿔야 합니다.
+export const L = {
+  en: "영어",
+  ko: "한국어",
+  source: "출처",
+  done: "완료",
+  lapses: "몰라요",
+  last: "마지막 복습",
+};
+const LOG_TITLE = "복습 기록";
+
+// 부모 페이지 아래 '복습 기록' DB를 찾고, 없으면 만듦
+export async function ensureLog(parentId, kids) {
+  const found = kids.find((b) => b.type === "child_database" && b.child_database.title === LOG_TITLE);
+  if (found) return found.id;
+  const db = await notion("POST", "/databases", {
+    parent: { type: "page_id", page_id: parentId },
+    title: [{ type: "text", text: { content: LOG_TITLE } }],
+    properties: {
+      [L.en]: { title: {} },
+      [L.ko]: { rich_text: {} },
+      [L.source]: { rich_text: {} },
+      [L.done]: { number: {} },
+      [L.lapses]: { number: {} },
+      [L.last]: { date: {} },
+    },
+  });
+  return db.id;
+}
+
+export async function queryAll(dbId) {
+  const out = [];
+  let cursor;
+  do {
+    const r = await notion("POST", `/databases/${dbId}/query`, { page_size: 100, ...(cursor && { start_cursor: cursor }) });
+    out.push(...r.results);
+    cursor = r.has_more ? r.next_cursor : undefined;
+  } while (cursor);
+  return out;
+}
+
+export const createRow = (dbId, properties) => notion("POST", "/pages", { parent: { database_id: dbId }, properties });
+export const updateRow = (pageId, properties) => notion("PATCH", `/pages/${pageId}`, { properties });
+
+// 지난 복습 페이지에서 문장별 체크 읽기 → [{ en, ko, grade: "알아요" | "몰라요" }]
+// 둘 다 체크했으면 몰라요로 봄. 체크 안 한 문장은 빼고 돌려줌
+export async function readGrades(pageId) {
+  const out = [];
+  for (const t of await children(pageId)) {
+    if (t.type !== "toggle" || !t.has_children) continue;
+    const title = plain(t.toggle.rich_text);
+    const m = title.match(/^\d+\.\s*(.*)$/);
+    if (!m) continue; // 문법 포인트 토글은 채점 대상 아님
+    const kids = await children(t.id);
+    const en = kids.find((b) => b.type === "paragraph");
+    const checked = new Set(kids.filter((b) => b.type === "to_do" && b.to_do.checked).map((b) => plain(b.to_do.rich_text).trim()));
+    const grade = checked.has("몰라요") ? "몰라요" : checked.has("알아요") ? "알아요" : null;
+    if (en && grade) out.push({ en: plain(en.paragraph.rich_text), ko: m[1], grade });
   }
+  return out;
 }
 
 export const createPage = (parentId, title, blocks) =>
