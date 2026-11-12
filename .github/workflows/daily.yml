@@ -2,7 +2,7 @@ name: daily-recall
 
 on:
   schedule:
-    - cron: "0 20 * * *" # UTC 20시 = KST 05시 (GitHub 사정으로 수십 분 늦을 수 있음)
+    - cron: "17 19 * * *" # UTC 19:17 = KST 04:17. 정시는 몰려서 몇 시간씩 밀리므로 피함 (그래도 늦을 수 있음)
   workflow_dispatch: # Actions 탭에서 수동 실행
 
 jobs:
