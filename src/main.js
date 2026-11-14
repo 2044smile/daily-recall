@@ -14,7 +14,9 @@ const sources = (process.env.SOURCE_PAGE_IDS ?? "").split(",").filter(Boolean).m
 if (!process.env.NOTION_TOKEN || !parentId || !sources.length) {
   throw new Error("NOTION_TOKEN, REVIEW_PAGE_ID, SOURCE_PAGE_IDS 환경변수가 필요합니다");
 }
-const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10); // KST 기준 날짜
+// KST 기준 날짜. 지운 날짜의 페이지를 다시 만들 때는 REVIEW_DATE=2026-11-12 처럼 지정
+const today = process.env.REVIEW_DATE || new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+if (!/^\d{4}-\d{2}-\d{2}$/.test(today)) throw new Error(`REVIEW_DATE 형식이 잘못됐습니다: ${today}`);
 const PAGE_TITLE = /^오늘의 복습 (\d{4}-\d{2}-\d{2})$/; // 반영이 끝나면 제목 끝에 ✅가 붙어 더는 안 맞음
 const LOOKBACK = 14; // 체크 안 한 페이지를 며칠 전까지 다시 볼지
 
