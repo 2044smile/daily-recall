@@ -21,3 +21,4 @@ jobs:
           REVIEW_PAGE_ID: ${{ secrets.REVIEW_PAGE_ID }}
           SOURCE_PAGE_IDS: ${{ secrets.SOURCE_PAGE_IDS }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DAILY_COUNT: ${{ vars.DAILY_COUNT }} # Settings → Variables에서 조절. 비워 두면 10

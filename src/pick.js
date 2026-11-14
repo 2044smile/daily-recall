@@ -1,5 +1,9 @@
 // 오늘 복습할 문장 고르기
-export const DAILY_COUNT = 30;
+// 하루 문장 수. 환경변수 DAILY_COUNT로 조절 (기본 10)
+export const DAILY_COUNT = Number(process.env.DAILY_COUNT || 10);
+if (!Number.isInteger(DAILY_COUNT) || DAILY_COUNT < 1) {
+  throw new Error(`DAILY_COUNT는 1 이상의 정수여야 합니다: ${process.env.DAILY_COUNT}`);
+}
 export const FLASH_COUNT = 5; // 문법 포인트(플래시 카드) 장수
 
 export function shuffle(items, random = Math.random) {
