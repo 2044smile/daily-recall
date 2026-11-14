@@ -1,6 +1,9 @@
 // Gemini 무료 API로 문장마다 한글 발음과 중고급 단어·표현의 뜻·발음·예문 붙이기 (하루 1회 호출)
 // GEMINI_API_KEY가 없거나 호출이 실패하면 빈 설명으로 넘어감
-const MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
+// 앞 모델이 혼잡하면 다음 모델로. GEMINI_MODEL을 주면 그 모델을 먼저 시도
+const MODELS = [
+  ...new Set([process.env.GEMINI_MODEL, "gemini-3-flash-preview", "gemini-flash-latest", "gemini-flash-lite-latest"].filter(Boolean)),
+];
 
 const PROMPT = `너는 한국인 중급 영어 학습자를 돕는 선생님이야.
 각 영어 문장마다 sound에 문장 전체를 원어민이 자연스럽게 말하는 소리를 한글로 적어.
@@ -51,21 +54,34 @@ export async function explain(sentences) {
       contents: [{ parts: [{ text: `${PROMPT}\n\n${sentences.map((s, i) => `${i + 1}. ${s}`).join("\n")}` }] }],
       generationConfig: { responseMimeType: "application/json", responseSchema: SCHEMA },
     });
-    let res, data;
-    // 무료 등급은 과부하(503)·한도(429)가 잦아서 간격을 늘려 가며 다시 시도
-    for (const wait of [10, 30, 60, null]) {
-      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
-        method: "POST",
-        headers: { "x-goog-api-key": process.env.GEMINI_API_KEY, "Content-Type": "application/json" },
-        body,
-      });
-      data = await res.json();
-      if (res.ok || wait === null || ![429, 500, 503].includes(res.status)) break;
-      console.warn(`Gemini ${res.status}, ${wait}초 뒤 다시 시도`);
-      await new Promise((r) => setTimeout(r, wait * 1000));
+    // 무료 등급은 모델별로 과부하(503)·한도(429)·무응답이 잦아서
+    // 모델마다 한 번 더 기다렸다 시도하고, 그래도 안 되면 다음 모델로 넘어감
+    const errors = [];
+    for (const model of MODELS) {
+      for (const wait of [15, null]) {
+        try {
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+            method: "POST",
+            headers: { "x-goog-api-key": process.env.GEMINI_API_KEY, "Content-Type": "application/json" },
+            body,
+            signal: AbortSignal.timeout(120_000),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            console.log(`Gemini ${model} 응답`);
+            return toNotes(JSON.parse(data.candidates[0].content.parts[0].text), sentences.length);
+          }
+          errors.push(`${model} ${res.status}`);
+          if (![429, 500, 503].includes(res.status)) break; // 404 등은 기다려도 소용없음
+        } catch (e) {
+          errors.push(`${model} ${e.name === "TimeoutError" ? "시간 초과" : e.message}`);
+        }
+        if (wait === null) break;
+        console.warn(`Gemini ${errors.at(-1)}, ${wait}초 뒤 다시 시도`);
+        await new Promise((r) => setTimeout(r, wait * 1000));
+      }
     }
-    if (!res.ok) throw new Error(`${res.status} ${data.error?.message}`);
-    return toNotes(JSON.parse(data.candidates[0].content.parts[0].text), sentences.length);
+    throw new Error(errors.join(", "));
   } catch (e) {
     console.warn(`단어 설명을 건너뜁니다 (Gemini: ${e.message})`);
     return empty;
